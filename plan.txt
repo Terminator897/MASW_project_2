@@ -1,0 +1,18 @@
+masw_project/
+├── main_gui.py             #запуск приложения
+├── src/
+│   ├── gui/
+│   │   ├── app.py          # Основное окно
+│   │   ├── widgets.py      # Кастомные кнопки, поля ввода
+│   │   └── canvas.py       #Интеграция графиков
+│   ├── processing/         #математика
+│   └── io.py               # Загрузка файлов
+
+1) main_gui.py:
+class MaswApp(ctk.CTk):
+    def __init__(self): тут кнопки боковые, окна и тп
+    def load_file(self): загрузка файла .segy или .su через ОбсПай + выдерание параметров из заголовка по возможности. итог - матрица амплитуд
+    def get_cropped_data(self): обрезка сейсмограммы по заданным границам
+    def plot_seismogram(self): строим сейсмограмку по заданному виду (отдельные трассы или серая)
+    def run_processing(self): расчет sfk и тд
+    def on_closing(self): отрубление кода при закрытии приложения
