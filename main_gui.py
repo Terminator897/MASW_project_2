@@ -6,6 +6,8 @@ from obspy import read
 import numpy as np
 import sys
 
+from src.processing.sfk_transform import sfk_transform
+
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
 
@@ -47,6 +49,19 @@ class MaswApp(ctk.CTk):
         self.d_min_ent.pack(padx=20, pady=2, fill="x")
         self.d_max_ent = ctk.CTkEntry(self.sidebar, placeholder_text="100.0")
         self.d_max_ent.pack(padx=20, pady=2, fill="x")
+
+                # --- Параметры записи (dt, dr) ---
+        ctk.CTkLabel(self.sidebar, text="Параметры записи:").pack(padx=20, anchor="w", pady=(10,0))
+
+        ctk.CTkLabel(self.sidebar, text="dt (мс):").pack(padx=20, anchor="w")
+        self.entry_dt = ctk.CTkEntry(self.sidebar)
+        self.entry_dt.pack(padx=20, pady=2, fill="x")
+        self.entry_dt.insert(0, "1.0") # Значение по умолчанию
+
+        ctk.CTkLabel(self.sidebar, text="dr (м):").pack(padx=20, anchor="w")
+        self.entry_dr = ctk.CTkEntry(self.sidebar)
+        self.entry_dr.pack(padx=20, pady=2, fill="x")
+        self.entry_dr.insert(0, "2.0") # Значение по умолчанию
 
         # --- Усиление (Gain) ---
         ctk.CTkLabel(self.sidebar, text="Усиление (Gain):").pack(padx=20, anchor="w", pady=(10,0))
@@ -91,6 +106,13 @@ class MaswApp(ctk.CTk):
             n_samples = self.full_data.shape[1]
             n_traces = self.full_data.shape[0]
             dr = 1.0 # По умолчанию, если нет в заголовке
+            # Авто-заполнение параметров записи
+            dt_ms = self.stream[0].stats.delta * 1000
+            self.entry_dt.delete(0, "end")
+            self.entry_dt.insert(0, str(round(dt_ms, 4)))
+
+            # dr обычно в SEGY не хранится в явном виде, 
+            # но если ты знаешь его из проекта, можно оставить по умолчанию или вписать вручную
             
             self.t_min_ent.delete(0, "end"); self.t_min_ent.insert(0, "0.0")
             self.t_max_ent.delete(0, "end"); self.t_max_ent.insert(0, str(round((n_samples-1)*dt, 3)))
@@ -156,9 +178,23 @@ class MaswApp(ctk.CTk):
 
     def run_processing(self):
         if self.view_data is None: return
-        # Теперь self.view_data содержит только то, что на экране!
-        print(f"Размер данных для SFK: {self.view_data.shape}")
-        messagebox.showinfo("SFK", f"Данные обрезаны: {self.view_data.shape}. Запуск расчета...")
+        
+        # Получаем параметры из GUI
+        dt = float(self.entry_dt.get()) / 1000.0
+        dr = float(self.entry_dr.get())
+        f_min = 10 # Можно добавить поля ввода
+        f_max = 80
+        
+        # Запускаем расчет (может занять время, позже вынесем в поток)
+        fk2d, vf2d, freq, k, v = sfk_transform(self.view_data, dt, dr, f_min, f_max)
+        
+        # Визуализируем результат (например, VF спектр)
+        self.ax.clear()
+        self.ax.imshow(vf2d, aspect='auto', extent=[freq[0], freq[-1], v[0], v[-1]], origin='lower')
+        self.ax.set_title("V-F Spectrum (Dispersion Image)")
+        self.ax.set_xlabel("Frequency (Hz)")
+        self.ax.set_ylabel("Velocity (m/s)")
+        self.canvas.draw()
 
     def on_closing(self):
         self.quit()
