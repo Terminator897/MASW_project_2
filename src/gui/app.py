@@ -33,10 +33,12 @@ class MaswApp(ctk.CTk):
         
         self.tab_seis = self.tabs.add("Сейсмограмма")
         self.tab_disp = self.tabs.add("Дисперсия (V-F)")
+        self.tab_fk = self.tabs.add("F-K Спектр")
         
         
         self.canvas_seis = SeismicCanvas(self.tab_seis)
         self.canvas_disp = SeismicCanvas(self.tab_disp)
+        self.canvas_fk = SeismicCanvas(self.tab_fk)
 
         # Привязка событий к кнопкам из Sidebar
         self.sidebar.load_btn.configure(command=self.on_load)
@@ -121,51 +123,53 @@ class MaswApp(ctk.CTk):
         return cropped, t_axis, d_axis
 
     def on_process(self):
-        if self.full_data is None:
-            messagebox.showwarning("Внимание", "Сначала загрузите сейсмограмму")
-            return
+        if self.full_data is None: return
 
         try:
-            # 1. Получаем параметры из интерфейса
-            dt = float(self.sidebar.dt_ent.get()) / 1000.0  # из мс в секунды
+            # Читаем параметры из новых вкладок Sidebar
+            dt = float(self.sidebar.dt_ent.get()) / 1000.0
             dr = float(self.sidebar.dr_ent.get())
+            f_min = float(self.sidebar.f_min.get())
+            f_max = float(self.sidebar.f_max.get())
+            v_max = float(self.sidebar.v_max.get())
             
-            # Можно добавить эти поля в Sidebar, пока зафиксируем стандартные для MASW
-            f_min = 5.0
-            f_max = 80.0
+            data, _, _ = self.get_cropped_data()
             
-            # 2. Берем только те данные, что видны на экране (обрезанные)
-            # Это позволяет анализировать конкретные участки записи
-            data, t_axis, d_axis = self.get_cropped_data()
-            
-            # 3. Запуск математического ядра
-            # Внимание: на больших данных может "задумчиво" подвиснуть на пару секунд
+            # Расчет
             fk2d, vf2d, freq, k_axis, v_axis = sfk_transform(
-                data, dt, dr, f_min=f_min, f_max=f_max, multi_nt=2, multi_nr=20
+                data, dt, dr, f_min=f_min, f_max=f_max, max_v=v_max
             )
 
-            # 4. Отрисовка дисперсионного изображения (V-F)
+            # --- Отрисовка F-K (Оси: X=Частота, Y=Волновое число) ---
+            self.canvas_fk.clear()
+            ax_fk = self.canvas_fk.ax
+            
+            display_fk = fk2d.T # Транспонируем, чтобы частота была по X
+            if self.sidebar.norm_check.get():
+                # Нормировка по столбцам (по каждой частоте)
+                display_fk = display_fk / np.max(display_fk, axis=0, keepdims=True)
+
+            ax_fk.imshow(display_fk, aspect='auto', origin='lower', cmap='jet',
+                         extent=[freq[0], freq[-1], k_axis[0], k_axis[-1]])
+            ax_fk.set_xlabel("Частота (Гц)")
+            ax_fk.set_ylabel("Волновое число k (1/м)")
+            self.canvas_fk.draw()
+
+            # --- Отрисовка V-F ---
             self.canvas_disp.clear()
-            ax = self.canvas_disp.ax
+            ax_vf = self.canvas_disp.ax
             
-            # Нормируем спектр по частотам для лучшей видимости мод (как в MATLAB оригинале)
-            # vf2d_norm = vf2d / np.max(vf2d, axis=0) 
-            
-            img = ax.imshow(
-                vf2d, 
-                aspect='auto', 
-                extent=[freq[0], freq[-1], v_axis[0], v_axis[-1]],
-                origin='lower', 
-                cmap='jet' # Традиционная расцветка для спектров
-            )
-            
-            ax.set_title("Дисперсионное изображение (V-F)")
-            ax.set_xlabel("Частота (Гц)")
-            ax.set_ylabel("Фазовая скорость (м/с)")
-            
+            display_vf = vf2d
+            if self.sidebar.norm_check.get():
+                # Нормировка по столбцам (по каждой частоте)
+                display_vf = display_vf / np.max(display_vf, axis=0, keepdims=True)
+
+            ax_vf.imshow(display_vf, aspect='auto', origin='lower', cmap='jet',
+                         extent=[freq[0], freq[-1], v_axis[0], v_axis[-1]])
+            ax_vf.set_xlabel("Частота (Гц)")
+            ax_vf.set_ylabel("Скорость (м/с)")
             self.canvas_disp.draw()
 
-            # 5. Автоматически переключаем пользователя на вкладку со спектром
             self.tabs.set("Дисперсия (V-F)")
 
         except Exception as e:
