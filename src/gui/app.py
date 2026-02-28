@@ -106,6 +106,7 @@ class MaswApp(ctk.CTk):
             dr = 2.0
         
         # Читаем границы из GUI
+        x0 = float(self.sidebar.x0_ent.get())
         t_start = float(self.sidebar.t_min.get())
         t_end = float(self.sidebar.t_max.get())
         d_start = float(self.sidebar.d_min.get())
@@ -118,62 +119,59 @@ class MaswApp(ctk.CTk):
         # Обрезаем матрицу
         cropped = self.full_data[id_start:id_end+1, it_start:it_end+1]
         t_axis = np.linspace(t_start, t_end, cropped.shape[1])
-        d_axis = np.linspace(d_start, d_end, cropped.shape[0])
-        
+        d_axis = np.linspace(x0 + d_start, x0 + d_end, cropped.shape[0])
         return cropped, t_axis, d_axis
 
     def on_process(self):
         if self.full_data is None: return
-
         try:
-            # Читаем параметры из новых вкладок Sidebar
+            # Считываем ВСЕ параметры из GUI
             dt = float(self.sidebar.dt_ent.get()) / 1000.0
             dr = float(self.sidebar.dr_ent.get())
+            v_min = float(self.sidebar.v_min.get())
+            v_max = float(self.sidebar.v_max.get())
             f_min = float(self.sidebar.f_min.get())
             f_max = float(self.sidebar.f_max.get())
-            v_max = float(self.sidebar.v_max.get())
+            m_nt = int(self.sidebar.multi_nt.get())
+            m_nr = int(self.sidebar.multi_nr.get())
+            s_w = float(self.sidebar.s_width.get())
             
             data, _, _ = self.get_cropped_data()
             
-            # Расчет
+            # Запуск с полным набором параметров
             fk2d, vf2d, freq, k_axis, v_axis = sfk_transform(
-                data, dt, dr, f_min=f_min, f_max=f_max, max_v=v_max
+                data, dt, dr, f_min, f_max, v_min, v_max, m_nt, m_nr, s_w
             )
 
-            # --- Отрисовка F-K (Оси: X=Частота, Y=Волновое число) ---
-            self.canvas_fk.clear()
-            ax_fk = self.canvas_fk.ax
-            
-            display_fk = fk2d.T # Транспонируем, чтобы частота была по X
-            if self.sidebar.norm_check.get():
-                # Нормировка по столбцам (по каждой частоте)
-                display_fk = display_fk / np.max(display_fk, axis=0, keepdims=True)
-
-            ax_fk.imshow(display_fk, aspect='auto', origin='lower', cmap='jet',
-                         extent=[freq[0], freq[-1], k_axis[0], k_axis[-1]])
-            ax_fk.set_xlabel("Частота (Гц)")
-            ax_fk.set_ylabel("Волновое число k (1/м)")
-            self.canvas_fk.draw()
-
-            # --- Отрисовка V-F ---
-            self.canvas_disp.clear()
-            ax_vf = self.canvas_disp.ax
-            
-            display_vf = vf2d
-            if self.sidebar.norm_check.get():
-                # Нормировка по столбцам (по каждой частоте)
-                display_vf = display_vf / np.max(display_vf, axis=0, keepdims=True)
-
-            ax_vf.imshow(display_vf, aspect='auto', origin='lower', cmap='jet',
-                         extent=[freq[0], freq[-1], v_axis[0], v_axis[-1]])
-            ax_vf.set_xlabel("Частота (Гц)")
-            ax_vf.set_ylabel("Скорость (м/с)")
-            self.canvas_disp.draw()
-
+            self.update_plots(fk2d, vf2d, freq, k_axis, v_axis)
             self.tabs.set("Дисперсия (V-F)")
-
+            
         except Exception as e:
-            messagebox.showerror("Ошибка расчета", f"Произошла ошибка: {str(e)}")
+            messagebox.showerror("Ошибка", f"Проверьте параметры: {e}")
+
+    def update_plots(self, fk2d, vf2d, freq, k_axis, v_axis):
+        cmap = self.sidebar.cmap_menu.get()
+        do_norm = self.sidebar.norm_check.get()
+        show_grid = self.sidebar.grid_check.get()
+
+        # Отрисовка V-F
+        self.canvas_disp.clear()
+        ax_vf = self.canvas_disp.ax
+        img_data = vf2d / np.max(vf2d, axis=0) if do_norm else vf2d
+        ax_vf.imshow(img_data, aspect='auto', origin='lower', cmap=cmap,
+                      extent=[freq[0], freq[-1], v_axis[0], v_axis[-1]])
+        if show_grid: ax_vf.grid(True, alpha=0.3)
+        self.canvas_disp.draw()
+
+        # Отрисовка F-K
+        self.canvas_fk.clear()
+        ax_fk = self.canvas_fk.ax
+        fk_data = fk2d.T
+        if do_norm: fk_data = fk_data / np.max(fk_data, axis=0)
+        ax_fk.imshow(fk_data, aspect='auto', origin='lower', cmap=cmap,
+                      extent=[freq[0], freq[-1], k_axis[0], k_axis[-1]])
+        if show_grid: ax_fk.grid(True, alpha=0.3)
+        self.canvas_fk.draw()
 
     def on_closing(self):
         self.quit()
