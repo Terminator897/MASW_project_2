@@ -47,13 +47,33 @@ class MaswApp(ctk.CTk):
         self.sidebar.view_mode.configure(command=lambda x: self.draw_seismogram())
 
     def on_load(self):
-        path = filedialog.askopenfilename(filetypes=[("Seismic", "*.segy *.su")])
+        path = filedialog.askopenfilename(
+            filetypes=[("Seismic Data", "*.segy *.sgy *.su"), ("All files", "*.*")]
+        )
         if path:
-            self.stream, self.full_data, dt = load_seismic_file(path)
-            # Обновляем поля в Sidebar
-            self.sidebar.dt_ent.delete(0, "end")
-            self.sidebar.dt_ent.insert(0, str(round(dt*1000, 4)))
-            self.draw_seismogram()
+            try:
+                # Получаем расширенный набор данных
+                self.stream, self.full_data, dt, dr, x0 = load_seismic_file(path)
+                
+                # Авто-заполнение полей в Sidebar
+                self.sidebar.dt_ent.delete(0, "end")
+                self.sidebar.dt_ent.insert(0, str(round(dt * 1000, 4)))
+                
+                self.sidebar.dr_ent.delete(0, "end")
+                self.sidebar.dr_ent.insert(0, str(dr))
+                
+                self.sidebar.x0_ent.delete(0, "end")
+                self.sidebar.x0_ent.insert(0, str(x0))
+                
+                # Сброс границ обрезки по умолчанию под новый файл
+                self.sidebar.t_max.delete(0, "end")
+                self.sidebar.t_max.insert(0, str(round(self.full_data.shape[1] * dt, 2)))
+                
+                self.draw_seismogram()
+                messagebox.showinfo("Готово", f"Файл загружен.\nШаг dr: {dr}м\nСмещение x0: {x0}м")
+                
+            except Exception as e:
+                messagebox.showerror("Ошибка чтения", f"Не удалось открыть файл: {e}")
 
     def draw_seismogram(self):
         if self.full_data is None:
@@ -153,23 +173,31 @@ class MaswApp(ctk.CTk):
         cmap = self.sidebar.cmap_menu.get()
         do_norm = self.sidebar.norm_check.get()
         show_grid = self.sidebar.grid_check.get()
+        
+        # Получаем dr из интерфейса для расчета алиасинга
+        dr = float(self.sidebar.dr_ent.get())
 
-        # Отрисовка V-F
+        # --- Отрисовка V-F ---
         self.canvas_disp.clear()
         ax_vf = self.canvas_disp.ax
-        img_data = vf2d / np.max(vf2d, axis=0) if do_norm else vf2d
-        ax_vf.imshow(img_data, aspect='auto', origin='lower', cmap=cmap,
+        img_vf = vf2d / np.max(vf2d, axis=0) if do_norm else vf2d
+        ax_vf.imshow(img_vf, aspect='auto', origin='lower', cmap=cmap,
                       extent=[freq[0], freq[-1], v_axis[0], v_axis[-1]])
+        
+        
         if show_grid: ax_vf.grid(True, alpha=0.3)
         self.canvas_disp.draw()
 
-        # Отрисовка F-K
+        # --- Отрисовка F-K ---
         self.canvas_fk.clear()
         ax_fk = self.canvas_fk.ax
         fk_data = fk2d.T
         if do_norm: fk_data = fk_data / np.max(fk_data, axis=0)
+        
         ax_fk.imshow(fk_data, aspect='auto', origin='lower', cmap=cmap,
                       extent=[freq[0], freq[-1], k_axis[0], k_axis[-1]])
+
+        
         if show_grid: ax_fk.grid(True, alpha=0.3)
         self.canvas_fk.draw()
 
